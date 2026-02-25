@@ -1,55 +1,64 @@
-import os
 import requests
-from flask import Flask
+from bs4 import BeautifulSoup
+import telegram
+import os
 from datetime import datetime
-import threading
-import time
-
-app = Flask(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-NEAMATI_DANGER = 85.90
-DIBRUGARH_DANGER = 105.00
+bot = telegram.Bot(token=BOT_TOKEN)
 
-def send_message(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": message})
+NEAMATI_URL = "https://ffs.india-water.gov.in/"
+DIBRUGARH_URL = "https://ffs.india-water.gov.in/"
 
-def get_water_levels():
-    # Placeholder values (we connect real data later)
-    neamati_level = 84.5
-    dibrugarh_level = 103.2
-    return neamati_level, dibrugarh_level
+def get_station_data(station_name):
+    response = requests.get(NEAMATI_URL, timeout=10)
+    soup = BeautifulSoup(response.text, "html.parser")
+    text = soup.get_text()
 
-def water_monitor():
-    while True:
-        now = datetime.now().strftime("%d-%m-%Y %H:%M")
+    def extract_value(label):
+        try:
+            start = text.index(label) + len(label)
+            return float(text[start:start+20].split()[0])
+        except:
+            return None
 
-        neamati, dibrugarh = get_water_levels()
+    present = extract_value("Present Water Level")
+    warning = extract_value("Warning Level (WL)")
+    danger = extract_value("Danger Level (DL)")
 
-        message = f"""
-Hourly Update ({now})
+    return present, warning, danger
 
-Neamati: {neamati} m
-Dibrugarh: {dibrugarh} m
+def get_status(current, wl, dl):
+    if current is None:
+        return "Data not found"
+    if current >= dl:
+        return "🔴 DANGER LEVEL"
+    elif current >= wl:
+        return "🟡 WARNING LEVEL"
+    else:
+        return "🟢 NORMAL"
+
+def send_update():
+    n_level, n_wl, n_dl = get_station_data("Neamatighat")
+    d_level, d_wl, d_dl = get_station_data("Dibrugarh")
+
+    message = f"""
+🌊 Brahmaputra Water Level Update
+
+📍 Neamatighat
+Level: {n_level}
+Status: {get_status(n_level, n_wl, n_dl)}
+
+📍 Dibrugarh
+Level: {d_level}
+Status: {get_status(d_level, d_wl, d_dl)}
+
+Updated: {datetime.now().strftime('%d %b %Y %I:%M %p')}
 """
-        send_message(message)
 
-        if neamati >= NEAMATI_DANGER:
-            send_message("⚠ WARNING: Neamati crossed danger level!")
-
-        if dibrugarh >= DIBRUGARH_DANGER:
-            send_message("⚠ WARNING: Dibrugarh crossed danger level!")
-
-        time.sleep(3600)
-
-@app.route('/')
-def home():
-    return "Water Monitor Running"
+    bot.send_message(chat_id=CHAT_ID, text=message)
 
 if __name__ == "__main__":
-    thread = threading.Thread(target=water_monitor)
-    thread.start()
-    app.run(host="0.0.0.0", port=10000)
+    send_update()
