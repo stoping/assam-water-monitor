@@ -1,7 +1,11 @@
 import os
 import requests
-import time
+from flask import Flask
 from datetime import datetime
+import threading
+import time
+
+app = Flask(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -14,29 +18,38 @@ def send_message(message):
     requests.post(url, data={"chat_id": CHAT_ID, "text": message})
 
 def get_water_levels():
-    # Placeholder values (we will connect real data later)
+    # Placeholder values (we connect real data later)
     neamati_level = 84.5
     dibrugarh_level = 103.2
     return neamati_level, dibrugarh_level
 
-while True:
-    now = datetime.now().strftime("%d-%m-%Y %H:%M")
+def water_monitor():
+    while True:
+        now = datetime.now().strftime("%d-%m-%Y %H:%M")
 
-    neamati, dibrugarh = get_water_levels()
+        neamati, dibrugarh = get_water_levels()
 
-    message = f"""
+        message = f"""
 Hourly Update ({now})
 
 Neamati: {neamati} m
 Dibrugarh: {dibrugarh} m
 """
+        send_message(message)
 
-    send_message(message)
+        if neamati >= NEAMATI_DANGER:
+            send_message("⚠ WARNING: Neamati crossed danger level!")
 
-    if neamati >= NEAMATI_DANGER:
-        send_message("⚠ WARNING: Neamati crossed danger level!")
+        if dibrugarh >= DIBRUGARH_DANGER:
+            send_message("⚠ WARNING: Dibrugarh crossed danger level!")
 
-    if dibrugarh >= DIBRUGARH_DANGER:
-        send_message("⚠ WARNING: Dibrugarh crossed danger level!")
+        time.sleep(3600)
 
-    time.sleep(3600)
+@app.route('/')
+def home():
+    return "Water Monitor Running"
+
+if __name__ == "__main__":
+    thread = threading.Thread(target=water_monitor)
+    thread.start()
+    app.run(host="0.0.0.0", port=10000)
